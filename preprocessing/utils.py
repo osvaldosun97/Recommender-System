@@ -43,7 +43,7 @@ def get_new_dtype(desc_series, dtype, c):
     else:
         raise KeyError("Unsupported dtype")
 
-def optimize_dtypes(df, types, verbose):
+def optimize_dtypes(df, verbose, types=['float', 'integer', 'object']):
     """
     For given dataframe convert dtypes for maximum efficiency and
     memory saving.
@@ -60,8 +60,11 @@ def optimize_dtypes(df, types, verbose):
     new_dtype_dict = {}
     if verbose:
         print(f"n_rows = {n_rows}")
-        print("=== memory usage(Bytes) BEFORE optimization ===")
+        print("=== BEFORE optimization ===")
+        print("memory usage(Bytes)")
         print(df.memory_usage(deep=True, index=False))
+        print("dtypes")
+        print(df.dtypes)
 
     for type in types:
         if "int" in type:
@@ -94,7 +97,10 @@ def optimize_dtypes(df, types, verbose):
 
     df = df.astype(new_dtype_dict)
     if verbose:
-        print(f"=== memory usage(Bytes) AFTER optimization ===")
+        print(f"=== AFTER optimization ===")
+        print("memory usage(Bytes) ")
         print(df.memory_usage(deep=True, index=False))
+        print("dtypes")
+        print(df.dtypes)
 
     return df
