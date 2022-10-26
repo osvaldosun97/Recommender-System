@@ -6,7 +6,7 @@ from sklearn import preprocessing
 from metrics import calc_rmse
 from models.utils import df_to_rating_matrix
 from models.matrix_factorization import run_matrix_factorization, train_test_split_rating_mat
-from preprocessing.utils import optimize_dtypes
+from preprocessing.utils import optimize_dtypes, train_test_split_dataframe
 
 
 def train():
@@ -37,13 +37,33 @@ if __name__ == '__main__':
                        })
     # FIXME : TypeError: No matching signature found
     # rating_df = optimize_dtypes(rating_df, True)
+    item_col_nm, user_col_nm, rating_col_nm = "user", "item", "ratings"
+    print(f"n_users = {rating_df[user_col_nm].nunique()}")
+    print(f"n_items = {rating_df[item_col_nm].nunique()}")
+    # rating_matrix = df_to_rating_matrix(rating_df, item_col_nm, user_col_nm, rating_col_nm)
+    # print(f"rating_matrix shape : {rating_matrix.shape}")
+    train_rating_df, test_rating_df = train_test_split_dataframe(rating_df, test_ratio=0.3, method="random")
 
-    rating_matrix = df_to_rating_matrix(rating_df, "movieId", "userId", "rating")
-    print(f"rating_matrix shape : {rating_matrix.shape}")
+
 
     # FIXME : how to train/test split rating matrix?
     # train_mat, test_mat = train_test_split_rating_mat()
     emb_dim, n_steps, lr, _lambda = 3, 100, 0.01, 0.01
     mf_method = "sgd"
-    P, Q = run_matrix_factorization(rating_matrix, emb_dim, n_steps, lr, _lambda, mf_method)
-    print(f"RMSE = {np.round(calc_rmse(P, Q, rating_matrix), 4)}")
+    tr_P, tr_Q = run_matrix_factorization(train_rating_df, emb_dim, n_steps, lr, _lambda, mf_method)
+    print(f"RMSE = {np.round(calc_rmse(tr_P, tr_Q, train_rating_df), 4)}")
+
+    verbose = True
+    if verbose:
+        print()
+        print(f"======= original rating matrix ========")
+        print(rating_matrix)
+        print()
+        print(f"======= predicted rating matrix by dot(P, Q^T) ========== ")
+        print(np.dot(P, Q.T))
+        print()
+        print(f"========== P =============")
+        print(P)
+        print()
+        print(f"========== Q^T =============")
+        print(Q.T)

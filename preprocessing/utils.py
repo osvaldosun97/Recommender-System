@@ -104,3 +104,27 @@ def optimize_dtypes(df, verbose, types=['float', 'integer', 'object']):
         print(df.dtypes)
 
     return df
+
+
+def train_test_split_dataframe(df, test_ratio=0.3, method='random', time_col=None):
+    """
+    Splits pandas dataframe into train and test dataframe using given method and test_ratio.
+    If method is 'temporal' use time_col to order them if exists.
+
+    :param df:
+    :param test_ratio:
+    :param method:
+    :param time_col:
+    :return:
+    """
+    if method == 'random':
+        test_df = df.sample(frac=test_ratio)
+        train_df = df.loc[~df.index.isin(test_df.index)].copy()
+    elif method == 'temporal':
+        if time_col:
+            df.sort_values(time_col, inplace=True)
+        tr_upper_index = round(len(df)*(1-test_ratio))
+        train_df = df.iloc[:tr_upper_index, :].copy()
+        test_df = df.iloc[tr_upper_index:, :].copy()
+
+    return train_df, test_df

@@ -4,6 +4,7 @@ Matrix Factorization based methods
 import numpy as np
 
 from metrics import calc_rmse
+from timeit import default_timer as timer
 
 
 def train_test_split_rating_mat(rating_matrix, train_ratio):
@@ -22,21 +23,66 @@ def train_test_split_rating_mat(rating_matrix, train_ratio):
     return train_R_matrix, test_R_matrix
 
 
-def run_matrix_factorization(R, K, n_steps, lr, _lambda, method="sgd", verbose=True):
-    """
-    run matrix factorization and return factorized matrix.
+class MatrixFactorization:
+    def __init__(self, rating_df, item_col, user_col, rating_col, emb_dim, lr, _lambda):
+        self.rating_df = rating_df
+        self.item_col = item_col
+        self.user_col = user_col
+        self.rating_col = rating_col
 
-    Assumes that rows are users and columns are items
+        self.emb_dim = emb_dim
+        self.lr = lr
+        self._lambda = _lambda
 
-    :param R: np.array, original rating matrix
-    :param K: int, embeddinng dimension
-    :param method: str
-    :return: np.array, predicted rating matrix
+        self.n_users, self.n_items  = self.rating_df[[self.user_col, self.item_col]].nunique()
+
+        self.P = initialize_emb_vector(self.n_users, self.emb_dim, dist="normal")
+        self.Q = initialize_emb_vector(self.n_items, self.emb_dim, dist="normal")
+
+    def fit(self, epoch=10, verbose=True):
+        """
+        train user/item embedding vector
+
+        :param epoch: int, number of training iteration
+        :param verbose: Bool
+        """
+
+        regularization = True
+        for i in range(epoch):
+            for i in range(self.n_users):
+                for j in range(self.n_items):
+                    r_ui = R[i, j]
+                    if np.isnan(r_ui):  # skip empty elements
+                        continue
+                    pred_r_ui = np.dot(self.P[i, :], self.Q[j, :])
+                    e_ui = r_ui - pred_r_ui
+                    if not regularization:
+                        self.P[i, :] = self.P[i, :] + self.lr * e_ui * self.Q[j, :]
+                        self.Q[j, :] = self.Q[j, :] + self.lr * e_ui * self.P[i, :]
+                        continue
+                    # Done for user_i with all item embedding vectors that had interactions
+                    # then move on(all j is done, next i) to next user, repeat the process.
+                    # updates user emb vector(P_i) using item emb vector Q_j
+                    self.P[i, :] = self.P[i, :] + self.lr * (e_ui * self.Q[j, :] - self._lambda * self.P[i,:])
+                    # use updated user emb vector to update Q_j
+                    self.Q[j, :] = self.Q[j, :] + self.lr * (e_ui * self.P[i, :] - self._lambda * self.Q[j, :])
+            if verbose:
+                if i % 10 == 0:
+                    print(f"epoch = {i} : RMSE =  ", np.round(calc_rmse(self.P, self.Q, self.rating_df), 4))
+
+
+
+
+def run_matrix_factorization_rating_matrix(R, K, n_steps, lr, _lambda, method="sgd", verbose=True, timeit=True):
     """
+    rating matrix as input version.
+    """
+    if timeit:
+        start_time = timer()
     # FIXME : should be added as function parameter
     regularization = True
 
-    n_users, n_items = R.shape()
+    n_users, n_items = R.shape
     P = initialize_emb_vector(n_users, K)
     Q = initialize_emb_vector(n_items, K)
 
@@ -46,7 +92,8 @@ def run_matrix_factorization(R, K, n_steps, lr, _lambda, method="sgd", verbose=T
                 r_ui = R[i, j]
                 if np.isnan(r_ui): # skip empty elements
                     continue
-                e_ui = r_ui - np.dot(P[i, :], Q[j, :])
+                pred_r_ui = np.dot(P[i, :], Q[j, :])
+                e_ui = r_ui - pred_r_ui
                 if not regularization:
                     P[i, :] = P[i, :] + lr * e_ui * Q[j, :]
                     Q[j, :] = Q[j, :] + lr * e_ui * P[i, :]
@@ -58,6 +105,10 @@ def run_matrix_factorization(R, K, n_steps, lr, _lambda, method="sgd", verbose=T
         if verbose:
             if n_step % 10 == 0:
                 print(f"{n_step} : RMSE =  ", np.round(calc_rmse(P, Q, R), 4))
+
+    if timeit:
+        end_time = timer()
+        print(f"seconds took : {round(end_time - start_time, 3)}s")
     return P, Q
 
 def initialize_emb_vector(n, K, dist="normal"):
