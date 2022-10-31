@@ -3,7 +3,7 @@ Matrix Factorization based methods
 """
 import numpy as np
 
-from metrics import calc_rmse
+from metrics import calc_rmse, calc_rmse_rating_matrix
 from timeit import default_timer as timer
 
 
@@ -47,8 +47,32 @@ class MatrixFactorization:
         :param verbose: Bool
         """
 
+
+
+
+class MatrixFactorization_rating_matrix_version:
+    def __init__(self, item_col, user_col, rating_col, emb_dim, lr, _lambda):
+        self.item_col = item_col
+        self.user_col = user_col
+        self.rating_col = rating_col
+
+        self.emb_dim = emb_dim
+        self.lr = lr
+        self._lambda = _lambda
+
+    def _initialize_emb_vector(self, R):
+        self.n_users, self.n_items  = R.shape
+        self.P = initialize_emb_vector(self.n_users, self.emb_dim, dist="normal")
+        self.Q = initialize_emb_vector(self.n_items, self.emb_dim, dist="normal")
+
+    def fit(self, R, epoch=10, verbose=False):
+        """
+        rating matrix as input version.
+        """
+        self._initialize_emb_vector(R)
+
         regularization = True
-        for i in range(epoch):
+        for i_epoch in range(epoch):
             for i in range(self.n_users):
                 for j in range(self.n_items):
                     r_ui = R[i, j]
@@ -67,49 +91,14 @@ class MatrixFactorization:
                     # use updated user emb vector to update Q_j
                     self.Q[j, :] = self.Q[j, :] + self.lr * (e_ui * self.P[i, :] - self._lambda * self.Q[j, :])
             if verbose:
-                if i % 10 == 0:
-                    print(f"epoch = {i} : RMSE =  ", np.round(calc_rmse(self.P, self.Q, self.rating_df), 4))
+                if i_epoch % 10 == 0:
+                    print(f"epoch = {i} : RMSE =  ", np.round(calc_rmse_rating_matrix(self.P, self.Q, R), 4))
+        print("Done training")
+
+    def predict(self):
+        return np.dot(self.P, self.Q.T)
 
 
-
-
-def run_matrix_factorization_rating_matrix(R, K, n_steps, lr, _lambda, method="sgd", verbose=True, timeit=True):
-    """
-    rating matrix as input version.
-    """
-    if timeit:
-        start_time = timer()
-    # FIXME : should be added as function parameter
-    regularization = True
-
-    n_users, n_items = R.shape
-    P = initialize_emb_vector(n_users, K)
-    Q = initialize_emb_vector(n_items, K)
-
-    for n_step in range(1, n_steps):
-        for i in range(n_users):
-            for j in range(n_items):
-                r_ui = R[i, j]
-                if np.isnan(r_ui): # skip empty elements
-                    continue
-                pred_r_ui = np.dot(P[i, :], Q[j, :])
-                e_ui = r_ui - pred_r_ui
-                if not regularization:
-                    P[i, :] = P[i, :] + lr * e_ui * Q[j, :]
-                    Q[j, :] = Q[j, :] + lr * e_ui * P[i, :]
-                    continue
-                # Done for user_i with all item embedding vectors that had interactions
-                # then move on(all j is done, next i) to next user, repeat the process.
-                P[i, :] = P[i, :] + lr * (e_ui * Q[j, :] - _lambda * P[i,:])  # updates user emb vector(P_i) using item emb vector Q_j
-                Q[j, :] = Q[j, :] + lr * (e_ui * P[i, :] - _lambda * Q[j, :])  # use updated user emb vector to update Q_j
-        if verbose:
-            if n_step % 10 == 0:
-                print(f"{n_step} : RMSE =  ", np.round(calc_rmse(P, Q, R), 4))
-
-    if timeit:
-        end_time = timer()
-        print(f"seconds took : {round(end_time - start_time, 3)}s")
-    return P, Q
 
 def initialize_emb_vector(n, K, dist="normal"):
     """
