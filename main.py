@@ -32,7 +32,7 @@ if __name__ == '__main__':
     item_col_nm, user_col_nm, rating_col_nm = "userId", "movieId", "rating"
 
     emb_dim = 3
-    epoch = 100
+    epoch = 10
     lr = 0.01
     _lambda = 0.01
 
@@ -40,6 +40,12 @@ if __name__ == '__main__':
     MF_model = MatrixFactorization(emb_dim, lr, _lambda, n_users, n_items)
     MF_model.fit(train_df, user_col_nm, item_col_nm, rating_col_nm, epoch=epoch, verbose=True)
 
+    print("====== prediction on trained dataset ======")
     train_df['pred_rating'] = MF_model.predict(train_df)
     print(train_df.head())
     print(f"RMSE = {round(calc_rmse(train_df['rating'], train_df['pred_rating']), 3)}")
+
+    print("asdasd")
+    print("====== prediction on new dataset =======")
+    predictions = MF_model.predict(test_df)
+    print(f"RMSE = {round(calc_rmse(test_df['rating'], predictions), 3)}")
