@@ -48,6 +48,23 @@ class MatrixFactorization:
         self.P = initialize_emb_vector(self.n_users, self.emb_dim, dist="normal")
         self.Q = initialize_emb_vector(self.n_items, self.emb_dim, dist="normal")
 
+    def batch_reccomendation(self, test_df) -> pd.DataFrame:
+        col_names = [self.user_col, self.item_col, "relevant_score", "rank"]
+        user_df = test_df[[self.user_col]].copy()
+        user_df['user_idx'] = user_df[self.user_col].apply(self.map_id2idx, args=(self.userid2idx, ))
+
+        warm_user_df = user_df.loc[~user_df['user_idx'].isna()].copy()
+        warm_user_df['user_idx'] = warm_user_df['user_idx'].astype(int)
+        warm_user_recc_df = self.batch_recommend_warm_users(warm_user_df)
+        warm_user_recc_df = warm_user_recc_df.reindex(columns=col_names)
+
+        # TODO: recc item to cold-user based on given tactic
+        #   ex -> just recc MP to all
+        #   ex2 -> perform MAB on cold-users -> where arms are binned by popularity.
+        cold_user_df = user_df.loc[user_df['user_idx'].isna()].copy()
+        cold_user_recc_df = self.batch_recommend_cold_users(cold_user_df)
+        return pd.concat([warm_user_recc_df, cold_user_recc_df])
+
     def fit(self, train_df, user_col, item_col, rating_col, epoch=10, verbose=True):
         """
         train user/item embedding vector
@@ -56,13 +73,22 @@ class MatrixFactorization:
         :param verbose: Bool
         """
         train_df = train_df.copy(deep=True)
+        self.train_df = train_df
         self.user_col = user_col
         self.item_col = item_col
         self.rating_col = rating_col
+        self.unique_user_ids = train_df[self.user_col].unique()
+        self.unique_item_ids = train_df[self.item_col].unique()
+
+        # For cold-users
+        self.mp_df_sorted = (self.train_df
+                              .groupby("movieId")
+                              .agg({"rating": ["mean", "count"]})['rating']
+                              .sort_values(["mean", "count"], ascending=False))
 
         # re-index for efficient lookup of embedding vectors.
-        self.userid2idx = {u_id: i for i, u_id in enumerate(train_df[user_col].unique())}
-        self.itemid2idx = {u_id: i for i, u_id in enumerate(train_df[item_col].unique())}
+        self.userid2idx = {u_id: i for i, u_id in enumerate(self.unique_user_ids)}
+        self.itemid2idx = {u_id: i for i, u_id in enumerate(self.unique_item_ids)}
         train_df[user_col] = train_df[user_col].apply(lambda x: self.userid2idx[x])
         train_df[item_col] = train_df[item_col].apply(lambda x: self.itemid2idx[x])
 
@@ -86,10 +112,92 @@ class MatrixFactorization:
                     print(f"{i_epoch} : RMSE =  ",
                           np.round(calc_rmse(train_df["rating"], y_pred), 4))
 
+    def get_topK(self, user_emb, topk=5) -> pd.Series:
+        """
+        Given user_emb, retrieve relevance score for all items from
+        previous training sample and return top K most relevant items
+        ordered from most relevant to least relevant
+
+        :param int, number of items to return
+        :return pd.DataFrame : predicted score for topK items.
+        """
+        user_emb_rep = np.tile(user_emb, (self.n_items, 1))
+        relevant_scores = np.sum(user_emb_rep * self.Q, axis=1)
+        recc_df = pd.DataFrame(relevant_scores, columns=['relevant_score'])
+        recc_df[self.item_col] = self.unique_item_ids
+        topk_recc_df = recc_df.sort_values("relevant_score", ascending=False)[:topk]
+        return topk_recc_df
+
+    def recommend_item(self, userid, topk=5) -> pd.Series:
+        try:
+            user_emb = self.P[self.userid2idx[userid]]
+            recc_items = self.get_topK(user_emb, topk=topk)[self.item_col].tolist()
+        except KeyError:
+            recc_items = self.mp_df_sorted.index[:topk].tolist()
+        return recc_items
+
+    def batch_recommend_cold_users(self, cold_user_df:pd.DataFrame, topk=5, method='most_popular') -> pd.DataFrame:
+        """
+        batch recommendation for cold-start users
+        """
+        n_rows = len(cold_user_df)
+        if method == "most_popular":
+            mp_df_sorted = (self.train_df
+                             .groupby("movieId")
+                             .agg({"rating": ["mean", "count"]})['rating']
+                             .sort_values(["mean", "count"], ascending=False))
+            recc_result_df = pd.DataFrame(np.repeat(cold_user_df[self.user_col], topk))
+            topk_items = mp_df_sorted.index[:topk].tolist()
+            recc_result_df[self.item_col] = topk_items*n_rows
+            recc_result_df['relevant_score'] = np.nan
+            recc_result_df['rank'] = list(range(1, topk+1))*n_rows
+        else:
+            raise NameError(f"method named {method} does not exists.")
+
+        return recc_result_df
+
+    def batch_recommend_warm_users(self, warm_user_df:pd.DataFrame, topk=5) -> pd.DataFrame:
+        """
+        batch recommendation for warm-start users
+        """
+        user_embs = self.P[warm_user_df['user_idx']]
+        user_ids = []
+        topk_recc_dfs = []
+        for user_emb, user_id in zip(user_embs, warm_user_df[self.user_col]):
+            topk_recc_df = self.get_topK(user_emb, topk=topk)
+            user_ids += [user_id]*topk
+            topk_recc_dfs.append(topk_recc_df)
+        recc_result_df = pd.concat(topk_recc_dfs)
+        recc_result_df[self.user_col] = user_ids
+        recc_result_df["rank"] = list(range(1, topk+1))*len(warm_user_df)
+        return recc_result_df
+
+    def map_id2idx(self, value, _map):
+        """
+        map userid to id that has been trained. For new users, return np.nan
+
+        :param value: int, id to map to idx.
+        :param _map: dictionary, for mapping
+        :return: float, index
+        """
+        try:
+            return _map[value]
+        except KeyError:
+            return np.nan
+
     def predict(self, test_df) -> pd.Series:
+        """
+        *Assumes there are no-cold-start users/items.
+
+        :param test_df:
+        :return:
+        """
         test_df = test_df.copy(deep=True)
         # TODO: Handle cold-start problem
-        test_df[self.user_col] = test_df[self.user_col].apply(lambda x: self.userid2idx[x])
+        try:
+            test_df[self.user_col] = test_df[self.user_col].apply(lambda x: self.userid2idx[x])
+        except KeyError:
+            raise Exception("There are cold-start users, please use batch_recommendation function instead")
         test_df[self.item_col] = test_df[self.item_col].apply(lambda x: self.itemid2idx[x])
 
         user_emb = self.P[test_df[self.user_col]]
@@ -97,6 +205,7 @@ class MatrixFactorization:
         predictions = np.sum(user_emb * item_emb, axis=1)
 
         return predictions
+
 
 
 class MatrixFactorization_rating_matrix_version:

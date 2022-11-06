@@ -11,17 +11,6 @@ from models.matrix_factorization import MatrixFactorization, train_test_split_ra
 from preprocessing.utils import optimize_dtypes, train_test_split_dataframe
 
 
-def train():
-    """
-    Function for running various steps for train phase
-
-    :return:
-    """
-    pass
-
-
-
-
 if __name__ == '__main__':
     print("Welcome to Haneul's Recommendation engine")
     rating_df = pd.read_parquet("datasets/ml-25m/ratings_sampled.parquet").sample(10_000)
@@ -29,10 +18,10 @@ if __name__ == '__main__':
     rating_df = optimize_dtypes(rating_df, verbose=False)
     train_df, test_df = train_test_split_dataframe(rating_df, test_ratio=0.3, method='random',
                                                    time_col=None, verbose=True)
-    item_col_nm, user_col_nm, rating_col_nm = "userId", "movieId", "rating"
+    user_col_nm, item_col_nm, rating_col_nm = "userId", "movieId", "rating"
 
     emb_dim = 3
-    epoch = 10
+    epoch = 100
     lr = 0.01
     _lambda = 0.01
 
@@ -45,7 +34,12 @@ if __name__ == '__main__':
     print(train_df.head())
     print(f"RMSE = {round(calc_rmse(train_df['rating'], train_df['pred_rating']), 3)}")
 
-    print("asdasd")
-    print("====== prediction on new dataset =======")
-    predictions = MF_model.predict(test_df)
-    print(f"RMSE = {round(calc_rmse(test_df['rating'], predictions), 3)}")
+
+    recommend_df = MF_model.batch_reccomendation(test_df)
+    print(f"===== recommend_df ========")
+    print(recommend_df.head())
+
+    for userid in test_df[user_col_nm].unique():
+        recc_items = MF_model.recommend_item(userid, topk=3)
+        print(f"recommend user{userid} -> movies:{recc_items}")
+
