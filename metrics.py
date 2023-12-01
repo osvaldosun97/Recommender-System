@@ -13,5 +13,6 @@ def calc_rmse_rating_matrix(P,Q,R):
 
 def calc_mse(y: pd.Series, pred_y: pd.Series) -> float:
     return np.mean((y - pred_y)**2)
-        def calc_rmse(y: pd.Series, pred_y: pd.Series) -> float:
-        return np.sqrt(calc_mse(y, pred_y))
+
+def calc_rmse(y: pd.Series, pred_y: pd.Series) -> float:
+    return np.sqrt(calc_mse(y, pred_y))
